@@ -1,8 +1,9 @@
 (function () {
   'use strict';
 
-  var IDLE_MS = 8000;
-  var FIRST_HIDE_MS = 2500;
+  var IDLE_MS = 6000;
+  var FIRST_HIDE_MS = 800;
+  var quietUntil = 0;
   var KEYS = [
     '1234567890'.split(''),
     'qwertyuiop'.split(''),
@@ -295,7 +296,11 @@
         onStateChange: function (e) {
           if (e.data === 1) {
             document.body.classList.remove('paused');
-            if (play.justStarted) { play.justStarted = false; armIdle(FIRST_HIDE_MS); }
+            if (play.justStarted) {
+              play.justStarted = false;
+              quietUntil = Date.now() + 1200;
+              armIdle(FIRST_HIDE_MS);
+            }
           }
           if (e.data === 2) document.body.classList.add('paused');
           if (e.data === 0) next();
@@ -325,6 +330,9 @@
     nowEl.classList.remove('hidden');
     document.body.classList.remove('paused');
     items('cards').forEach(function (c, k) { c.classList.toggle('playing', k === i); });
+    // Hide the search right away so only the fire and the now-playing bar remain.
+    quietUntil = Date.now() + 1500;
+    armIdle(FIRST_HIDE_MS);
     if (!playerReady) { pending = i; return; }
     pending = -1;
     play.justStarted = true;
@@ -374,17 +382,21 @@
 
   function playing() { return current >= 0 && !document.body.classList.contains('paused'); }
 
+  function goAmbient() {
+    if (playing() && zone !== 'keyboard') document.body.classList.add('ambient');
+  }
+
   function armIdle(ms) {
     clearTimeout(idleTimer);
-    idleTimer = setTimeout(function () {
-      if (playing() && zone !== 'keyboard') document.body.classList.add('ambient');
-    }, ms || IDLE_MS);
+    idleTimer = setTimeout(goAmbient, ms == null ? IDLE_MS : ms);
   }
 
   function wake() {
+    if (Date.now() < quietUntil) return false;
     var was = document.body.classList.contains('ambient');
     document.body.classList.remove('ambient');
-    armIdle();
+    if (playing()) armIdle(IDLE_MS);
+    else clearTimeout(idleTimer);
     return was;
   }
 
@@ -400,9 +412,13 @@
     if (!isTv) q.focus();
   });
 
-  ['mousemove', 'mousedown', 'wheel'].forEach(function (ev) {
-    document.addEventListener(ev, function () { wake(); }, { passive: true });
-  });
+  // On the TV the remote pointer spams mousemove/click and would keep the UI open forever.
+  // Only real remote keys wake the interface; on desktop the mouse still does.
+  if (!isTv) {
+    ['mousemove', 'mousedown', 'wheel'].forEach(function (ev) {
+      document.addEventListener(ev, function () { wake(); }, { passive: true });
+    });
+  }
 
   document.addEventListener('keydown', function (e) {
     var k = e.keyCode;

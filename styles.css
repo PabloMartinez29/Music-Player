@@ -218,8 +218,11 @@ body.paused .ctl.big .i-pause { display: none; }
 
 /* ---------- ambient mode: only the fire and the now-playing bar ---------- */
 
-body.ambient #ui, body.ambient #top { opacity: 0; transform: translateY(-30px); pointer-events: none; }
-body.ambient .shade { opacity: .4; }
+body.ambient #ui, body.ambient #top {
+  opacity: 0; visibility: hidden; transform: translateY(-30px); pointer-events: none;
+  transition: opacity .7s var(--ease), transform .7s var(--ease), visibility 0s linear .7s;
+}
+body.ambient .shade { opacity: .35; }
 
 #toast {
   position: absolute; left: 50%; top: 726px; transform: translate(-50%, -20px); padding: 16px 30px; border-radius: 30px;
