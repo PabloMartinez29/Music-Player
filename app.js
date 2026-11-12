@@ -46,15 +46,21 @@
   addEventListener('resize', fit);
   fit();
 
-  if (!isTv) {
-    function fireOn() { fire.classList.add('on'); }
-    fire.addEventListener('playing', fireOn);
-    fire.addEventListener('timeupdate', fireOn);
-    if (!fire.paused && fire.readyState > 2) fireOn();
-    fire.play().catch(function () {});
-  } else if (fire) {
-    fire.removeAttribute('src');
-    fire.load();
+  function fireOn() { fire.classList.add('on'); }
+  fire.addEventListener('playing', fireOn);
+  fire.addEventListener('timeupdate', fireOn);
+  if (!fire.paused && fire.readyState > 2) fireOn();
+  fire.play().catch(function () {});
+
+  // On Tizen, YouTube steals the only video decoder. Keep a still underneath and pause the fire clip while music plays.
+  function fireForMusic(on) {
+    if (!fire) return;
+    if (on) {
+      fire.pause();
+      fire.classList.remove('on');
+    } else {
+      fire.play().catch(function () {});
+    }
   }
 
   (function embers() {
@@ -354,6 +360,7 @@
     // Hide the search right away so only the fire and the now-playing bar remain.
     quietUntil = Date.now() + 1500;
     armIdle(FIRST_HIDE_MS);
+    fireForMusic(true);
     if (!playerReady) { pending = i; return; }
     pending = -1;
     play.justStarted = true;

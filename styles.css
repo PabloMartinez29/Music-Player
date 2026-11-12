@@ -18,15 +18,13 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-body.tv { cursor: none; background: transparent; }
-body.tv #stage { background: transparent; }
-/* On the TV the shell already plays the fireplace; a second video goes black when YouTube starts. */
-body.tv #fire { display: none !important; }
+body.tv { cursor: none; }
 
-/* Fixed 1920x1080 canvas, scaled to whatever screen it runs on. */
+/* Fixed 1920x1080 canvas. Still under the video so the fire never goes fully black. */
 #stage {
   position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
   transform-origin: 0 0; overflow: hidden;
+  background: #000 url(fogata-still.jpg) center / cover no-repeat;
 }
 
 #fire {
