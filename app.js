@@ -37,6 +37,7 @@
   var playToken = 0;
   var audioReq = 0;
   var pendingAudio = {};
+  var failStreak = 0;
   var idleTimer = null;
 
   // ---------- layout ----------
@@ -312,7 +313,10 @@
   window.addEventListener('message', function (e) {
     var d = e.data || {};
     if (d.fogata === 'audioState') {
-      if (d.state === 'playing') {
+      if (d.state === 'loading') {
+        toast('Cargando canción…');
+      } else if (d.state === 'playing') {
+        failStreak = 0;
         document.body.classList.remove('paused');
         if (fire && fire.paused) fire.play().catch(function () {});
         quietUntil = Date.now() + 1200;
@@ -324,14 +328,14 @@
       } else if (d.state === 'paused') {
         document.body.classList.add('paused');
       } else if (d.state === 'ended') {
+        failStreak = 0;
         next();
       } else if (d.state === 'error') {
         if (d.req && pendingAudio[d.req]) {
           pendingAudio[d.req].reject(new Error(d.error || 'Error'));
           delete pendingAudio[d.req];
         } else {
-          // Skip quietly to the next playable song instead of spamming the TV.
-          setTimeout(next, 600);
+          onPlayFail(d.error);
         }
       }
     } else if (d.fogata === 'audioTime' && current >= 0) {
@@ -350,16 +354,29 @@
   function shellPlay(id) {
     return new Promise(function (resolve, reject) {
       var req = ++audioReq;
+      // Downloads on the TV can take a while; 15s caused endless skipping.
       var timer = setTimeout(function () {
         delete pendingAudio[req];
-        reject(new Error('Tiempo agotado al obtener el audio'));
-      }, 15000);
+        reject(new Error('Tiempo agotado al cargar el audio'));
+      }, 90000);
       pendingAudio[req] = {
         resolve: function () { clearTimeout(timer); resolve(); },
         reject: function (err) { clearTimeout(timer); reject(err); }
       };
       window.parent.postMessage({ fogata: 'playAudio', id: id, req: req }, '*');
     });
+  }
+
+  function onPlayFail(reason) {
+    failStreak++;
+    if (fire && fire.paused) fire.play().catch(function () {});
+    if (failStreak >= 3) {
+      failStreak = 0;
+      toast('No se pudo reproducir. Prueba otra búsqueda.');
+      return;
+    }
+    toast('Pasando a otra canción…');
+    setTimeout(next, 900);
   }
 
   function play(i, fromHistory) {
@@ -387,12 +404,13 @@
       toast('Abre la app Fogata en el televisor para escuchar');
       return;
     }
+    toast('Cargando canción…');
     shellPlay(r.id).then(function () {
       if (token !== playToken) return;
-    }).catch(function () {
+      failStreak = 0;
+    }).catch(function (e) {
       if (token !== playToken) return;
-      // Auto-skip unplayable tracks; fireplace keeps running.
-      setTimeout(next, 600);
+      onPlayFail(e && e.message);
     });
   }
 
