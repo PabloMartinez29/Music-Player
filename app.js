@@ -51,11 +51,24 @@
   addEventListener('resize', fit);
   fit();
 
-  function fireOn() { fire.classList.add('on'); }
+  function fireOn() {
+    if (fire && !fire.paused && fire.readyState >= 2 && fire.currentTime > 0.05) {
+      fire.classList.add('on');
+      if (window.parent !== window) window.parent.postMessage({ fogata: 'fireOn' }, '*');
+    }
+  }
   fire.addEventListener('playing', fireOn);
   fire.addEventListener('timeupdate', fireOn);
   if (!fire.paused && fire.readyState > 2) fireOn();
   fire.play().catch(function () {});
+  // If the video stalls, drop back to the still so the screen is never plain black.
+  setInterval(function () {
+    if (!fire) return;
+    if (fire.paused || fire.readyState < 2) {
+      fire.classList.remove('on');
+      fire.play().catch(function () {});
+    }
+  }, 1500);
 
   (function embers() {
     var box = document.querySelector('.embers');
@@ -338,18 +351,42 @@
           onPlayFail(d.error);
         }
       }
-    } else if (d.fogata === 'audioTime' && current >= 0) {
-      var dur = d.d;
-      if (!isFinite(dur) || dur <= 0) dur = (results[current] && results[current].seconds) || 0;
-      var t = d.t || 0;
-      $('t-cur').textContent = fmt(t);
-      $('t-dur').textContent = fmt(dur);
-      $('bar-fill').style.width = dur ? (t / dur * 100) + '%' : '0';
-      if (d.paused) document.body.classList.add('paused');
-      else document.body.classList.remove('paused');
-      if (fire && fire.paused) fire.play().catch(function () {});
+    } else if (d.fogata === 'audioData' && d.bytes) {
+      var pending = d.req && pendingAudio[d.req];
+      try {
+        if (audio._blobUrl) URL.revokeObjectURL(audio._blobUrl);
+        audio._blobUrl = URL.createObjectURL(new Blob([d.bytes], { type: d.mime || 'audio/mp4' }));
+        audio.src = audio._blobUrl;
+        audio.load();
+        audio.play().then(function () {
+          failStreak = 0;
+          document.body.classList.remove('paused');
+          if (fire && fire.paused) fire.play().catch(function () {});
+          if (pending) { pending.resolve(); delete pendingAudio[d.req]; }
+        }).catch(function (err) {
+          if (pending) { pending.reject(err); delete pendingAudio[d.req]; }
+        });
+      } catch (err) {
+        if (pending) { pending.reject(err); delete pendingAudio[d.req]; }
+      }
     }
   });
+
+  audio.addEventListener('ended', function () {
+    failStreak = 0;
+    next();
+  });
+
+  setInterval(function () {
+    if (current < 0 || !audio.src || audio.paused) return;
+    var dur = audio.duration;
+    if (!isFinite(dur) || dur <= 0) dur = (results[current] && results[current].seconds) || 0;
+    var t = audio.currentTime || 0;
+    $('t-cur').textContent = fmt(t);
+    $('t-dur').textContent = fmt(dur);
+    $('bar-fill').style.width = dur ? (t / dur * 100) + '%' : '0';
+    if (fire && fire.paused) fire.play().catch(function () {});
+  }, 500);
 
   function shellPlay(id) {
     return new Promise(function (resolve, reject) {
