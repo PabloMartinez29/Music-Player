@@ -33,7 +33,10 @@
   var results = [], current = -1, history = [];
   var playedIds = {}, playedKeys = {};
   var query = '', nextToken = null, loadingMore = false;
-  var player = null, playerReady = false, pending = -1;
+  var audio = $('audio');
+  var playToken = 0;
+  var audioReq = 0;
+  var pendingAudio = {};
   var idleTimer = null;
 
   // ---------- layout ----------
@@ -52,44 +55,6 @@
   fire.addEventListener('timeupdate', fireOn);
   if (!fire.paused && fire.readyState > 2) fireOn();
   fire.play().catch(function () {});
-
-  // Frame-loop fireplace used while YouTube holds the only TV video decoder.
-  var fireAnim = $('fire-anim');
-  var fireFrames = [], fireFrame = 0, fireTimer = null;
-  (function preloadFireFrames() {
-    var left = 24;
-    for (var i = 0; i < 24; i++) {
-      (function (idx) {
-        var img = new Image();
-        img.onload = function () {
-          fireFrames[idx] = img;
-          left--;
-        };
-        img.src = 'fogata-frames/' + (idx < 10 ? '0' : '') + idx + '.jpg';
-      })(i);
-    }
-  })();
-  function drawFireFrame() {
-    if (!fireAnim || !fireFrames.length) return;
-    var img = fireFrames[fireFrame % fireFrames.length];
-    if (!img) return;
-    var ctx = fireAnim.getContext('2d');
-    ctx.drawImage(img, 0, 0, fireAnim.width, fireAnim.height);
-    fireFrame++;
-  }
-  function fireForMusic(on) {
-    document.body.classList.toggle('music-on', !!on);
-    if (on) {
-      try { fire.pause(); } catch (e) {}
-      if (!fireTimer) {
-        drawFireFrame();
-        fireTimer = setInterval(drawFireFrame, 90);
-      }
-    } else {
-      if (fireTimer) { clearInterval(fireTimer); fireTimer = null; }
-      fire.play().catch(function () {});
-    }
-  }
 
   (function embers() {
     var box = document.querySelector('.embers');
@@ -340,39 +305,62 @@
     }).catch(function () { loadingMore = false; });
   }
 
-  // ---------- player ----------
-  // Music uses YouTube (works without your PC). The TV can only decode one video,
-  // so while a song plays we swap the fireplace webm for an animated frame-loop.
+  // ---------- player (audio-only — fireplace stays full HD video) ----------
 
-  window.onYouTubeIframeAPIReady = function () {
-    player = new YT.Player('player', {
-      width: 320, height: 180,
-      playerVars: { autoplay: 1, controls: 0, rel: 0, playsinline: 1, modestbranding: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
-      events: {
-        onReady: function () { playerReady = true; if (pending >= 0) play(pending); },
-        onStateChange: function (e) {
-          if (e.data === 1) {
-            document.body.classList.remove('paused');
-            fireForMusic(true);
-            if (play.justStarted) {
-              play.justStarted = false;
-              quietUntil = Date.now() + 1200;
-              armIdle(FIRST_HIDE_MS);
-            }
-          }
-          if (e.data === 2) document.body.classList.add('paused');
-          if (e.data === 0) next();
-        },
-        onError: function () {
-          toast('Esta canción no permite reproducirse aquí. Pasando a otra…');
-          setTimeout(next, 1500);
+  function inShell() { return window.parent && window.parent !== window; }
+
+  window.addEventListener('message', function (e) {
+    var d = e.data || {};
+    if (d.fogata === 'audioState') {
+      if (d.state === 'playing') {
+        document.body.classList.remove('paused');
+        if (fire && fire.paused) fire.play().catch(function () {});
+        quietUntil = Date.now() + 1200;
+        armIdle(FIRST_HIDE_MS);
+        if (d.req && pendingAudio[d.req]) {
+          pendingAudio[d.req].resolve();
+          delete pendingAudio[d.req];
+        }
+      } else if (d.state === 'paused') {
+        document.body.classList.add('paused');
+      } else if (d.state === 'ended') {
+        next();
+      } else if (d.state === 'error') {
+        if (d.req && pendingAudio[d.req]) {
+          pendingAudio[d.req].reject(new Error(d.error || 'Error'));
+          delete pendingAudio[d.req];
+        } else {
+          toast('Esta canción no se pudo reproducir. Pasando a otra…');
+          setTimeout(next, 1200);
         }
       }
+    } else if (d.fogata === 'audioTime' && current >= 0) {
+      var dur = d.d;
+      if (!isFinite(dur) || dur <= 0) dur = (results[current] && results[current].seconds) || 0;
+      var t = d.t || 0;
+      $('t-cur').textContent = fmt(t);
+      $('t-dur').textContent = fmt(dur);
+      $('bar-fill').style.width = dur ? (t / dur * 100) + '%' : '0';
+      if (d.paused) document.body.classList.add('paused');
+      else document.body.classList.remove('paused');
+      if (fire && fire.paused) fire.play().catch(function () {});
+    }
+  });
+
+  function shellPlay(id) {
+    return new Promise(function (resolve, reject) {
+      var req = ++audioReq;
+      var timer = setTimeout(function () {
+        delete pendingAudio[req];
+        reject(new Error('Tiempo agotado al obtener el audio'));
+      }, 15000);
+      pendingAudio[req] = {
+        resolve: function () { clearTimeout(timer); resolve(); },
+        reject: function (err) { clearTimeout(timer); reject(err); }
+      };
+      window.parent.postMessage({ fogata: 'playAudio', id: id, req: req }, '*');
     });
-  };
-  var api = document.createElement('script');
-  api.src = 'https://www.youtube.com/iframe_api';
-  document.head.appendChild(api);
+  }
 
   function play(i, fromHistory) {
     if (i < 0 || i >= results.length) return;
@@ -392,11 +380,20 @@
     items('cards').forEach(function (c, k) { c.classList.toggle('playing', k === i); });
     quietUntil = Date.now() + 1500;
     armIdle(FIRST_HIDE_MS);
-    fireForMusic(true);
-    if (!playerReady) { pending = i; return; }
-    pending = -1;
-    play.justStarted = true;
-    player.loadVideoById(r.id);
+    if (fire && fire.paused) fire.play().catch(function () {});
+
+    var token = ++playToken;
+    if (!inShell()) {
+      toast('Abre la app Fogata en el televisor para escuchar');
+      return;
+    }
+    shellPlay(r.id).then(function () {
+      if (token !== playToken) return;
+    }).catch(function (e) {
+      if (token !== playToken) return;
+      toast('No se pudo reproducir: ' + (e.message || e));
+      setTimeout(next, 1200);
+    });
   }
 
   function next() {
@@ -411,23 +408,16 @@
   }
 
   function toggle() {
-    if (!playerReady || current < 0) return;
-    if (player.getPlayerState() === 1) player.pauseVideo(); else player.playVideo();
+    if (current < 0) return;
+    if (inShell()) window.parent.postMessage({ fogata: 'audioToggle' }, '*');
+    else if (audio.paused) audio.play().catch(function () {});
+    else audio.pause();
   }
 
   function fmt(s) {
     s = Math.max(0, Math.floor(s || 0));
     return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2);
   }
-
-  setInterval(function () {
-    if (!playerReady || current < 0 || !player.getDuration) return;
-    var d = player.getDuration(), t = player.getCurrentTime();
-    if (!isFinite(d) || d <= 0) d = (results[current] && results[current].seconds) || 0;
-    $('t-cur').textContent = fmt(t);
-    $('t-dur').textContent = fmt(d);
-    $('bar-fill').style.width = d ? (t / d * 100) + '%' : '0';
-  }, 500);
 
   document.querySelectorAll('.ctl').forEach(function (b) {
     b.addEventListener('click', function () { act(b.getAttribute('data-act')); });
