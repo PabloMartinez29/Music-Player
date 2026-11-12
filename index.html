@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fogata · Música junto al fuego</title>
+  <meta name="description" content="Busca cualquier canción del mundo y escúchala junto al fuego.">
+  <link rel="icon" href="flame.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="stage">
+  <video id="fire" src="fogata.webm" autoplay muted loop playsinline preload="auto"></video>
+  <div class="shade"></div>
+  <div class="embers" aria-hidden="true"></div>
+
+  <header id="top">
+    <div class="brand">
+      <img src="flame.svg" alt="">
+      <div>
+        <div class="name">Fogata</div>
+        <div class="tag">Música junto al fuego</div>
+      </div>
+    </div>
+    <div class="clock">
+      <div id="time">--:--</div>
+      <div id="date"></div>
+    </div>
+  </header>
+
+  <main id="ui">
+    <section id="hero">
+      <h1 id="headline">¿Qué quieres escuchar esta noche?</h1>
+      <label id="search" class="focusable" data-zone="search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="text" placeholder="Canción, artista o género" autocomplete="off" spellcheck="false">
+        <span class="key">OK</span>
+      </label>
+      <div id="chips"></div>
+    </section>
+
+    <section id="results" class="hidden">
+      <div class="row-head">
+        <h2 id="results-title"></h2>
+        <span id="results-count"></span>
+      </div>
+      <div class="rail"><div id="cards"></div></div>
+    </section>
+  </main>
+
+  <footer id="now" class="hidden">
+    <div class="player-wrap"><div id="player"></div></div>
+    <div class="meta">
+      <div class="label"><span class="eq"><i></i><i></i><i></i><i></i></span> Sonando ahora</div>
+      <div id="now-title"></div>
+      <div id="now-channel"></div>
+      <div class="progress">
+        <span id="t-cur">0:00</span>
+        <div class="bar"><div id="bar-fill"></div></div>
+        <span id="t-dur">0:00</span>
+      </div>
+    </div>
+    <div class="controls">
+      <button class="ctl focusable" data-zone="controls" data-act="prev" aria-label="Anterior">
+        <svg viewBox="0 0 24 24"><path d="M6 5v14M19 5 9 12l10 7z"/></svg>
+      </button>
+      <button class="ctl big focusable" data-zone="controls" data-act="toggle" aria-label="Pausa">
+        <svg class="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>
+        <svg class="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15L19.5 12z"/></svg>
+      </button>
+      <button class="ctl focusable" data-zone="controls" data-act="next" aria-label="Siguiente">
+        <svg viewBox="0 0 24 24"><path d="M18 5v14M5 5l10 7-10 7z"/></svg>
+      </button>
+    </div>
+  </footer>
+
+  <div id="toast"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
