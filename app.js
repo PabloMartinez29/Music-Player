@@ -46,11 +46,16 @@
   addEventListener('resize', fit);
   fit();
 
-  function fireOn() { fire.classList.add('on'); }
-  fire.addEventListener('playing', fireOn);
-  fire.addEventListener('timeupdate', fireOn);
-  if (!fire.paused && fire.readyState > 2) fireOn();
-  fire.play().catch(function () {});
+  if (!isTv) {
+    function fireOn() { fire.classList.add('on'); }
+    fire.addEventListener('playing', fireOn);
+    fire.addEventListener('timeupdate', fireOn);
+    if (!fire.paused && fire.readyState > 2) fireOn();
+    fire.play().catch(function () {});
+  } else if (fire) {
+    fire.removeAttribute('src');
+    fire.load();
+  }
 
   (function embers() {
     var box = document.querySelector('.embers');
@@ -226,12 +231,15 @@
       results = [];
       current = -1;
       history = [];
+      playedIds = {};
+      playedKeys = {};
       cardsEl.innerHTML = '';
       cardsEl.style.transform = 'translateX(0)';
       nextToken = page.next;
       add(page.items);
       index.cards = 0;
       setZone(results.length ? 'cards' : 'search');
+      if (nextToken && results.length < 20) prefetch();
     }).catch(function (e) {
       $('results-count').textContent = '';
       toast('No se pudo buscar: ' + e.message);
@@ -269,14 +277,27 @@
     return -1;
   }
 
+  // Pull more pages into the rail without starting playback (used right after a thin first search).
+  function prefetch() {
+    if (loadingMore || !nextToken) return;
+    loadingMore = true;
+    fetchPage(query, nextToken).then(function (page) {
+      nextToken = page.next;
+      loadingMore = false;
+      add(page.items);
+      if (nextToken && results.length < 24) prefetch();
+    }).catch(function () { loadingMore = false; });
+  }
+
   // Like YouTube's autoplay: when the list runs out, keep going with more songs, never repeating one.
   function loadMore() {
     if (loadingMore) return;
     loadingMore = true;
     var base = results[current] || {};
     var text = nextToken ? query : (base.channel ? base.channel + ' canciones' : query);
-    fetchPage(text, nextToken).then(function (page) {
-      nextToken = nextToken ? page.next : null;
+    var token = nextToken;
+    fetchPage(text, token).then(function (page) {
+      nextToken = page.next;
       loadingMore = false;
       var before = results.length;
       if (add(page.items) > 0) play(before);
@@ -289,7 +310,7 @@
 
   window.onYouTubeIframeAPIReady = function () {
     player = new YT.Player('player', {
-      width: 356, height: 200,
+      width: 320, height: 180,
       playerVars: { autoplay: 1, controls: 0, rel: 0, playsinline: 1, modestbranding: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
       events: {
         onReady: function () { playerReady = true; if (pending >= 0) play(pending); },

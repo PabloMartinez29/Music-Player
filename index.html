@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=6">
+  <link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 <div id="stage">
@@ -46,7 +46,7 @@
   </main>
 
   <footer id="now" class="hidden">
-    <div class="player-wrap"><div id="player"></div><img id="now-art" alt=""></div>
+    <div class="player-wrap"><img id="now-art" alt=""></div>
     <div class="meta">
       <div class="label"><span class="eq"><i></i><i></i><i></i><i></i></span> Sonando ahora</div>
       <div id="now-title"></div>
@@ -71,8 +71,11 @@
     </div>
   </footer>
 
+  <!-- Audio-only YouTube host: kept off-screen so it never paints over the art or the fire. -->
+  <div id="yt-host" aria-hidden="true"><div id="player"></div></div>
+
   <div id="toast"></div>
 </div>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
