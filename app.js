@@ -2,10 +2,20 @@
   'use strict';
 
   var GENRES = [
-    ['Rancheras', '#ff6a3d'], ['Vallenato', '#ffc04d'], ['Salsa', '#ff4d6d'], ['Bachata', '#c86bff'],
-    ['Reggaetón', '#4dd2ff'], ['Baladas', '#ff8fb1'], ['Rock en español', '#9aa7ff'], ['Cumbia', '#7dff9a'],
-    ['Merengue', '#ffd36b'], ['Boleros', '#ffae7a'], ['Popular', '#ff7a45'], ['Jazz', '#6be4ff'],
-    ['Clásica', '#e8d7b0'], ['Lo-fi para relajarse', '#b49cff']
+    ['Rancheras', '#ff6a3d', 'rancheras mexicanas clásicas Vicente Fernández Pedro Infante'],
+    ['Vallenato', '#ffc04d', 'vallenatos clásicos Diomedes Díaz Binomio de Oro'],
+    ['Salsa', '#ff4d6d', 'salsa clásica Grupo Niche Joe Arroyo Héctor Lavoe'],
+    ['Bachata', '#c86bff', 'bachata éxitos Romeo Santos Aventura'],
+    ['Reggaetón', '#4dd2ff', 'reggaetón éxitos 2026'],
+    ['Baladas', '#ff8fb1', 'baladas románticas en español éxitos'],
+    ['Rock en español', '#9aa7ff', 'rock en español clásicos Soda Stereo Maná Héroes del Silencio'],
+    ['Cumbia', '#7dff9a', 'cumbia colombiana clásica'],
+    ['Merengue', '#ffd36b', 'merengue clásico Juan Luis Guerra Wilfrido Vargas'],
+    ['Boleros', '#ffae7a', 'boleros clásicos Los Panchos Javier Solís'],
+    ['Popular', '#ff7a45', 'música popular colombiana despecho éxitos'],
+    ['Jazz', '#6be4ff', 'jazz clásico relajante'],
+    ['Clásica', '#e8d7b0', 'música clásica Mozart Beethoven Chopin'],
+    ['Lo-fi para relajarse', '#b49cff', 'lofi para relajarse']
   ];
   var AMBIENT_MS = 12000;
   var DEMO = [
@@ -74,7 +84,7 @@
     b.className = 'chip focusable';
     b.textContent = g[0];
     b.style.setProperty('--c', g[1]);
-    b.addEventListener('click', function () { search(g[0], g[0]); });
+    b.addEventListener('click', function () { search(g[2], g[0]); });
     chipsEl.appendChild(b);
   });
 
@@ -328,7 +338,7 @@
       case 13:
         e.preventDefault();
         if (zone === 'search') q.focus();
-        else if (zone === 'chips') { var g = GENRES[index.chips]; search(g[0], g[0]); }
+        else if (zone === 'chips') { var g = GENRES[index.chips]; search(g[2], g[0]); }
         else if (zone === 'cards') play(index.cards);
         else if (zone === 'controls') act(items('controls')[index.controls].getAttribute('data-act'));
         break;
