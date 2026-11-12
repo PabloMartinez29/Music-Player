@@ -32,7 +32,8 @@
   var results = [], current = -1, history = [];
   var playedIds = {}, playedKeys = {};
   var query = '', nextToken = null, loadingMore = false;
-  var player = null, playerReady = false, pending = -1;
+  var audio = $('audio');
+  var playToken = 0;
   var idleTimer = null;
 
   // ---------- layout ----------
@@ -51,22 +52,6 @@
   fire.addEventListener('timeupdate', fireOn);
   if (!fire.paused && fire.readyState > 2) fireOn();
   fire.play().catch(function () {});
-
-  // On Tizen, YouTube steals the only video decoder and the <video> layer goes black on top of everything.
-  // Drop the fire clip entirely while music plays; the still on #stage stays visible.
-  function fireForMusic(on) {
-    document.body.classList.toggle('music-on', !!on);
-    if (!fire) return;
-    if (on) {
-      try { fire.pause(); } catch (e) {}
-      fire.classList.remove('on');
-      fire.removeAttribute('src');
-      try { fire.load(); } catch (e) {}
-    } else if (!fire.getAttribute('src')) {
-      fire.src = 'fogata.webm';
-      fire.play().catch(function () {});
-    }
-  }
 
   (function embers() {
     var box = document.querySelector('.embers');
@@ -317,36 +302,22 @@
     }).catch(function () { loadingMore = false; });
   }
 
-  // ---------- player ----------
+  // ---------- player (audio only — keeps the fireplace video free on the TV) ----------
 
-  window.onYouTubeIframeAPIReady = function () {
-    player = new YT.Player('player', {
-      width: 320, height: 180,
-      playerVars: { autoplay: 1, controls: 0, rel: 0, playsinline: 1, modestbranding: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
-      events: {
-        onReady: function () { playerReady = true; if (pending >= 0) play(pending); },
-        onStateChange: function (e) {
-          if (e.data === 1) {
-            document.body.classList.remove('paused');
-            if (play.justStarted) {
-              play.justStarted = false;
-              quietUntil = Date.now() + 1200;
-              armIdle(FIRST_HIDE_MS);
-            }
-          }
-          if (e.data === 2) document.body.classList.add('paused');
-          if (e.data === 0) next();
-        },
-        onError: function () {
-          toast('Esta canción no permite reproducirse aquí. Pasando a otra…');
-          setTimeout(next, 1500);
-        }
-      }
-    });
-  };
-  var api = document.createElement('script');
-  api.src = 'https://www.youtube.com/iframe_api';
-  document.head.appendChild(api);
+  audio.addEventListener('ended', function () { next(); });
+  audio.addEventListener('playing', function () {
+    document.body.classList.remove('paused');
+    if (fire && fire.paused) fire.play().catch(function () {});
+    quietUntil = Date.now() + 1200;
+    armIdle(FIRST_HIDE_MS);
+  });
+  audio.addEventListener('pause', function () {
+    if (!audio.ended) document.body.classList.add('paused');
+  });
+  audio.addEventListener('error', function () {
+    toast('Esta canción no se pudo reproducir. Pasando a otra…');
+    setTimeout(next, 1200);
+  });
 
   function play(i, fromHistory) {
     if (i < 0 || i >= results.length) return;
@@ -359,17 +330,33 @@
     $('now-channel').textContent = r.channel;
     $('now-art').src = r.thumb;
     $('bar-fill').style.width = '0';
+    $('t-cur').textContent = '0:00';
+    $('t-dur').textContent = r.seconds ? fmt(r.seconds) : '0:00';
     nowEl.classList.remove('hidden');
     document.body.classList.remove('paused');
     items('cards').forEach(function (c, k) { c.classList.toggle('playing', k === i); });
-    // Hide the search right away so only the fire and the now-playing bar remain.
     quietUntil = Date.now() + 1500;
     armIdle(FIRST_HIDE_MS);
-    fireForMusic(true);
-    if (!playerReady) { pending = i; return; }
-    pending = -1;
-    play.justStarted = true;
-    player.loadVideoById(r.id);
+    // Keep the fireplace moving — music is audio-only, so it does not steal the TV video decoder.
+    if (fire && fire.paused) fire.play().catch(function () {});
+
+    var token = ++playToken;
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    fetch('/api/stream?id=' + encodeURIComponent(r.id))
+      .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
+      .then(function (res) {
+        if (token !== playToken) return;
+        if (!res.ok || !res.data.url) throw new Error(res.data && res.data.error || 'Sin audio');
+        audio.src = res.data.url;
+        return audio.play();
+      })
+      .catch(function (e) {
+        if (token !== playToken) return;
+        toast('No se pudo reproducir: ' + (e.message || e));
+        setTimeout(next, 1200);
+      });
   }
 
   function next() {
@@ -384,8 +371,8 @@
   }
 
   function toggle() {
-    if (!playerReady || current < 0) return;
-    if (player.getPlayerState() === 1) player.pauseVideo(); else player.playVideo();
+    if (current < 0) return;
+    if (audio.paused) audio.play().catch(function () {}); else audio.pause();
   }
 
   function fmt(s) {
@@ -394,11 +381,14 @@
   }
 
   setInterval(function () {
-    if (!playerReady || current < 0 || !player.getDuration) return;
-    var d = player.getDuration(), t = player.getCurrentTime();
+    if (current < 0 || !audio.src) return;
+    var d = audio.duration;
+    if (!isFinite(d) || d <= 0) d = (results[current] && results[current].seconds) || 0;
+    var t = audio.currentTime || 0;
     $('t-cur').textContent = fmt(t);
     $('t-dur').textContent = fmt(d);
     $('bar-fill').style.width = d ? (t / d * 100) + '%' : '0';
+    if (fire && fire.paused && !audio.paused) fire.play().catch(function () {});
   }, 500);
 
   document.querySelectorAll('.ctl').forEach(function (b) {
