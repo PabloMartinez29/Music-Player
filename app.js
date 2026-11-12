@@ -33,8 +33,7 @@
   var results = [], current = -1, history = [];
   var playedIds = {}, playedKeys = {};
   var query = '', nextToken = null, loadingMore = false;
-  var audio = $('audio');
-  var playToken = 0;
+  var player = null, playerReady = false, pending = -1;
   var idleTimer = null;
 
   // ---------- layout ----------
@@ -53,6 +52,44 @@
   fire.addEventListener('timeupdate', fireOn);
   if (!fire.paused && fire.readyState > 2) fireOn();
   fire.play().catch(function () {});
+
+  // Frame-loop fireplace used while YouTube holds the only TV video decoder.
+  var fireAnim = $('fire-anim');
+  var fireFrames = [], fireFrame = 0, fireTimer = null;
+  (function preloadFireFrames() {
+    var left = 24;
+    for (var i = 0; i < 24; i++) {
+      (function (idx) {
+        var img = new Image();
+        img.onload = function () {
+          fireFrames[idx] = img;
+          left--;
+        };
+        img.src = 'fogata-frames/' + (idx < 10 ? '0' : '') + idx + '.jpg';
+      })(i);
+    }
+  })();
+  function drawFireFrame() {
+    if (!fireAnim || !fireFrames.length) return;
+    var img = fireFrames[fireFrame % fireFrames.length];
+    if (!img) return;
+    var ctx = fireAnim.getContext('2d');
+    ctx.drawImage(img, 0, 0, fireAnim.width, fireAnim.height);
+    fireFrame++;
+  }
+  function fireForMusic(on) {
+    document.body.classList.toggle('music-on', !!on);
+    if (on) {
+      try { fire.pause(); } catch (e) {}
+      if (!fireTimer) {
+        drawFireFrame();
+        fireTimer = setInterval(drawFireFrame, 90);
+      }
+    } else {
+      if (fireTimer) { clearInterval(fireTimer); fireTimer = null; }
+      fire.play().catch(function () {});
+    }
+  }
 
   (function embers() {
     var box = document.querySelector('.embers');
@@ -303,50 +340,39 @@
     }).catch(function () { loadingMore = false; });
   }
 
-  // ---------- player (audio only — keeps the fireplace video free on the TV) ----------
+  // ---------- player ----------
+  // Music uses YouTube (works without your PC). The TV can only decode one video,
+  // so while a song plays we swap the fireplace webm for an animated frame-loop.
 
-  audio.addEventListener('ended', function () { next(); });
-  audio.addEventListener('playing', function () {
-    document.body.classList.remove('paused');
-    if (fire && fire.paused) fire.play().catch(function () {});
-    quietUntil = Date.now() + 1200;
-    armIdle(FIRST_HIDE_MS);
-  });
-  audio.addEventListener('pause', function () {
-    if (!audio.ended) document.body.classList.add('paused');
-  });
-  audio.addEventListener('error', function () {
-    // Vercel may cut a long proxy at ~60s; resume from the last position.
-    if (current >= 0 && lastAudioTime > 8) {
-      var left = (results[current].seconds || 0) - lastAudioTime;
-      if (left > 5) {
-        startAudio(results[current], lastAudioTime);
-        return;
+  window.onYouTubeIframeAPIReady = function () {
+    player = new YT.Player('player', {
+      width: 320, height: 180,
+      playerVars: { autoplay: 1, controls: 0, rel: 0, playsinline: 1, modestbranding: 1, fs: 0, iv_load_policy: 3, origin: location.origin },
+      events: {
+        onReady: function () { playerReady = true; if (pending >= 0) play(pending); },
+        onStateChange: function (e) {
+          if (e.data === 1) {
+            document.body.classList.remove('paused');
+            fireForMusic(true);
+            if (play.justStarted) {
+              play.justStarted = false;
+              quietUntil = Date.now() + 1200;
+              armIdle(FIRST_HIDE_MS);
+            }
+          }
+          if (e.data === 2) document.body.classList.add('paused');
+          if (e.data === 0) next();
+        },
+        onError: function () {
+          toast('Esta canción no permite reproducirse aquí. Pasando a otra…');
+          setTimeout(next, 1500);
+        }
       }
-    }
-    toast('Esta canción no se pudo reproducir. Pasando a otra…');
-    setTimeout(next, 1200);
-  });
-
-  var lastAudioTime = 0;
-
-  function audioUrl(r, start) {
-    var u = '/api/play?id=' + encodeURIComponent(r.id);
-    if (start > 1) u += '&start=' + Math.floor(start) + '&dur=' + Math.floor(r.seconds || 0);
-    return u;
-  }
-
-  function startAudio(r, start) {
-    var token = ++playToken;
-    audio.pause();
-    audio.src = audioUrl(r, start || 0);
-    audio.load();
-    audio.play().catch(function (e) {
-      if (token !== playToken) return;
-      toast('No se pudo reproducir: ' + (e.message || e));
-      setTimeout(next, 1200);
     });
-  }
+  };
+  var api = document.createElement('script');
+  api.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(api);
 
   function play(i, fromHistory) {
     if (i < 0 || i >= results.length) return;
@@ -361,15 +387,16 @@
     $('bar-fill').style.width = '0';
     $('t-cur').textContent = '0:00';
     $('t-dur').textContent = r.seconds ? fmt(r.seconds) : '0:00';
-    lastAudioTime = 0;
     nowEl.classList.remove('hidden');
     document.body.classList.remove('paused');
     items('cards').forEach(function (c, k) { c.classList.toggle('playing', k === i); });
     quietUntil = Date.now() + 1500;
     armIdle(FIRST_HIDE_MS);
-    // Music is audio-only on Vercel, so the fireplace video keeps the TV decoder.
-    if (fire && fire.paused) fire.play().catch(function () {});
-    startAudio(r, 0);
+    fireForMusic(true);
+    if (!playerReady) { pending = i; return; }
+    pending = -1;
+    play.justStarted = true;
+    player.loadVideoById(r.id);
   }
 
   function next() {
@@ -384,8 +411,8 @@
   }
 
   function toggle() {
-    if (current < 0) return;
-    if (audio.paused) audio.play().catch(function () {}); else audio.pause();
+    if (!playerReady || current < 0) return;
+    if (player.getPlayerState() === 1) player.pauseVideo(); else player.playVideo();
   }
 
   function fmt(s) {
@@ -394,22 +421,12 @@
   }
 
   setInterval(function () {
-    if (current < 0 || !audio.src) return;
-    var d = audio.duration;
+    if (!playerReady || current < 0 || !player.getDuration) return;
+    var d = player.getDuration(), t = player.getCurrentTime();
     if (!isFinite(d) || d <= 0) d = (results[current] && results[current].seconds) || 0;
-    var t = audio.currentTime || 0;
-    if (t > lastAudioTime) lastAudioTime = t;
-    // Progress bar uses absolute song time when we resumed after a proxy cut.
-    var shown = t;
-    if (audio.src.indexOf('start=') > -1) {
-      var m = /[?&]start=(\d+)/.exec(audio.src);
-      if (m) shown = (+m[1] || 0) + t;
-    }
-    lastAudioTime = Math.max(lastAudioTime, shown);
-    $('t-cur').textContent = fmt(shown);
+    $('t-cur').textContent = fmt(t);
     $('t-dur').textContent = fmt(d);
-    $('bar-fill').style.width = d ? (Math.min(shown, d) / d * 100) + '%' : '0';
-    if (fire && fire.paused && !audio.paused) fire.play().catch(function () {});
+    $('bar-fill').style.width = d ? (t / d * 100) + '%' : '0';
   }, 500);
 
   document.querySelectorAll('.ctl').forEach(function (b) {

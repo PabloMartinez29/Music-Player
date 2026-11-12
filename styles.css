@@ -33,6 +33,13 @@ body.tv { cursor: none; }
 }
 #fire.on { opacity: 1; transform: scale(1); }
 
+#fire-anim {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  opacity: 0; pointer-events: none; transition: opacity .6s ease;
+}
+body.music-on #fire { display: none !important; }
+body.music-on #fire-anim { opacity: 1; }
+
 .shade {
   position: absolute; inset: 0; pointer-events: none;
   background:
@@ -189,7 +196,11 @@ body.typing #ui { top: 48px; }
   box-shadow: 0 8px 24px rgba(0,0,0,.55);
 }
 #now-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-#audio { display: none; }
+#yt-host {
+  position: absolute; left: -400px; top: 0; width: 320px; height: 180px; overflow: hidden;
+  opacity: 0; pointer-events: none; z-index: -1;
+}
+#yt-host iframe { width: 320px; height: 180px; border: 0; }
 .meta { flex: 1; min-width: 0; }
 .label { display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase; color: var(--amber); }
 .eq { display: inline-flex; gap: 3px; align-items: flex-end; height: 18px; }
