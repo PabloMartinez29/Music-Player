@@ -1,72 +1,56 @@
 // GET /api/play?id=VIDEO_ID[&start=seconds&dur=seconds]
-// Proxies YouTube audio on Vercel (no PC). Fireplace video keeps the TV decoder.
+// Resolves audio via YouTube ANDROID client (no cookies) and proxies bytes
+// so the TV does not need your PC. Fireplace video keeps the decoder free.
 
 const { Readable } = require('stream');
-const { execFile } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-const { promisify } = require('util');
-const execFileAsync = promisify(execFile);
 
-const YTDLP = '/tmp/yt-dlp';
-const YTDLP_URL = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux';
 const cache = new Map();
-const CACHE_MS = 30 * 60 * 1000;
-let installing = null;
-
-async function ensureYtDlp() {
-  if (fs.existsSync(YTDLP)) {
-    try {
-      fs.accessSync(YTDLP, fs.constants.X_OK);
-      return YTDLP;
-    } catch (e) {
-      /* reinstall */
-    }
-  }
-  if (!installing) {
-    installing = (async () => {
-      const res = await fetch(YTDLP_URL, {
-        headers: { 'User-Agent': 'FogataAudio/1.0' },
-        redirect: 'follow',
-      });
-      if (!res.ok) throw new Error('No se pudo bajar yt-dlp (' + res.status + ')');
-      const buf = Buffer.from(await res.arrayBuffer());
-      fs.writeFileSync(YTDLP, buf, { mode: 0o755 });
-      installing = null;
-      return YTDLP;
-    })().catch((e) => {
-      installing = null;
-      throw e;
-    });
-  }
-  return installing;
-}
+const CACHE_MS = 25 * 60 * 1000;
 
 async function resolveUrl(id) {
   const hit = cache.get(id);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.url;
 
-  const bin = await ensureYtDlp();
-  const { stdout } = await execFileAsync(
-    bin,
-    [
-      '-f', 'bestaudio[ext=m4a]/bestaudio/ba/bestaudio',
-      '-g',
-      '--no-warnings',
-      '--no-check-certificates',
-      '--prefer-free-formats',
-      '--force-ipv4',
-      'https://www.youtube.com/watch?v=' + id,
-    ],
-    { timeout: 45000, maxBuffer: 2 * 1024 * 1024 }
-  );
+  const r = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip',
+      'X-YouTube-Client-Name': '3',
+      'X-YouTube-Client-Version': '20.10.38',
+    },
+    body: JSON.stringify({
+      context: {
+        client: {
+          clientName: 'ANDROID',
+          clientVersion: '20.10.38',
+          androidSdkVersion: 34,
+          hl: 'es',
+          gl: 'CO',
+        },
+      },
+      videoId: id,
+      contentCheckOk: true,
+      racyCheckOk: true,
+    }),
+  });
 
-  const url = String(stdout || '')
-    .trim()
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .find((s) => /^https?:\/\//.test(s));
-  if (!url) throw new Error('Sin URL de audio');
+  const j = await r.json();
+  const status = j.playabilityStatus && j.playabilityStatus.status;
+  if (status && status !== 'OK') {
+    throw new Error((j.playabilityStatus.reason || status || 'blocked').toString());
+  }
+
+  const formats = []
+    .concat((j.streamingData && j.streamingData.adaptiveFormats) || [])
+    .concat((j.streamingData && j.streamingData.formats) || []);
+
+  const audio = formats
+    .filter((f) => f && f.url && /audio/i.test(f.mimeType || ''))
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+
+  if (!audio.length) throw new Error('Sin audio reproducibile');
+  const url = audio[0].url;
   cache.set(id, { url, at: Date.now() });
   return url;
 }
@@ -93,14 +77,13 @@ module.exports = async (req, res) => {
       const head = await fetch(audioUrl, { method: 'HEAD' }).catch(() => null);
       const len = head && Number(head.headers.get('content-length') || 0);
       if (len && dur > 1) {
-        const byte = Math.min(len - 1, Math.floor((start / dur) * len));
-        headers.Range = 'bytes=' + byte + '-';
+        headers.Range = 'bytes=' + Math.min(len - 1, Math.floor((start / dur) * len)) + '-';
       }
     }
 
     const upstream = await fetch(audioUrl, { headers });
     if (!upstream.ok && upstream.status !== 206) {
-      throw new Error('YouTube audio HTTP ' + upstream.status);
+      throw new Error('Audio HTTP ' + upstream.status);
     }
     res.status(upstream.status);
     ['content-type', 'content-length', 'content-range', 'accept-ranges'].forEach((h) => {
