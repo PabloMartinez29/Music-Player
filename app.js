@@ -330,8 +330,8 @@
           pendingAudio[d.req].reject(new Error(d.error || 'Error'));
           delete pendingAudio[d.req];
         } else {
-          toast('Esta canción no se pudo reproducir. Pasando a otra…');
-          setTimeout(next, 1200);
+          // Skip quietly to the next playable song instead of spamming the TV.
+          setTimeout(next, 600);
         }
       }
     } else if (d.fogata === 'audioTime' && current >= 0) {
@@ -389,10 +389,10 @@
     }
     shellPlay(r.id).then(function () {
       if (token !== playToken) return;
-    }).catch(function (e) {
+    }).catch(function () {
       if (token !== playToken) return;
-      toast('No se pudo reproducir: ' + (e.message || e));
-      setTimeout(next, 1200);
+      // Auto-skip unplayable tracks; fireplace keeps running.
+      setTimeout(next, 600);
     });
   }
 
