@@ -52,13 +52,18 @@
   if (!fire.paused && fire.readyState > 2) fireOn();
   fire.play().catch(function () {});
 
-  // On Tizen, YouTube steals the only video decoder. Keep a still underneath and pause the fire clip while music plays.
+  // On Tizen, YouTube steals the only video decoder and the <video> layer goes black on top of everything.
+  // Drop the fire clip entirely while music plays; the still on #stage stays visible.
   function fireForMusic(on) {
+    document.body.classList.toggle('music-on', !!on);
     if (!fire) return;
     if (on) {
-      fire.pause();
+      try { fire.pause(); } catch (e) {}
       fire.classList.remove('on');
-    } else {
+      fire.removeAttribute('src');
+      try { fire.load(); } catch (e) {}
+    } else if (!fire.getAttribute('src')) {
+      fire.src = 'fogata.webm';
       fire.play().catch(function () {});
     }
   }

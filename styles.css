@@ -32,6 +32,9 @@ body.tv { cursor: none; }
   opacity: 0; transform: scale(1.04); transition: opacity 2s ease, transform 12s ease-out;
 }
 #fire.on { opacity: 1; transform: scale(1); }
+/* Tizen paints <video> as a hardware layer that ignores opacity — must display:none or it stays black over the still. */
+body.music-on #fire { display: none !important; }
+body.music-on .shade { opacity: .22; }
 
 .shade {
   position: absolute; inset: 0; pointer-events: none;
