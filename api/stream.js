@@ -1,18 +1,11 @@
-// GET /api/stream?id=VIDEO_ID  ->  { url, mime }
-// Returns an audio-only URL so the TV can keep playing the fireplace video
-// (Tizen typically has one video decoder; a YouTube <iframe> steals it and blacks out the fire).
-
+// Fallback only. On the TV we use the LAN audio proxy (?audio=http://PC:8787)
+// so the fireplace video keeps the hardware decoder.
 const PIPED = [
   'https://pipedapi.kavin.rocks',
   'https://pipedapi.adminforge.de',
-  'https://pipedapi.darkness.services',
   'https://api.piped.private.coffee',
-];
-
-const INVIDIOUS = [
-  'https://inv.nadeko.net',
-  'https://yewtu.be',
-  'https://invidious.fdn.fr',
+  'https://pipedapi.reallyaweso.me',
+  'https://api.piped.yt',
 ];
 
 async function piped(base, id) {
@@ -25,22 +18,7 @@ async function piped(base, id) {
     .filter((s) => s && s.url)
     .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
   if (!list.length) throw new Error('piped sin audio');
-  const best = list[0];
-  return { url: best.url, mime: best.mimeType || 'audio/mp4' };
-}
-
-async function invidious(base, id) {
-  const r = await fetch(base + '/api/v1/videos/' + encodeURIComponent(id), {
-    headers: { Accept: 'application/json' },
-  });
-  if (!r.ok) throw new Error('invidious ' + r.status);
-  const j = await r.json();
-  const list = (j.adaptiveFormats || [])
-    .filter((s) => s && s.url && /^audio\//.test(s.type || s.mimeType || ''))
-    .sort((a, b) => (parseInt(b.bitrate, 10) || 0) - (parseInt(a.bitrate, 10) || 0));
-  if (!list.length) throw new Error('invidious sin audio');
-  const best = list[0];
-  return { url: best.url, mime: best.type || best.mimeType || 'audio/mp4' };
+  return { url: list[0].url, mime: list[0].mimeType || 'audio/mp4' };
 }
 
 module.exports = async (req, res) => {
@@ -49,25 +27,18 @@ module.exports = async (req, res) => {
   if (!/^[a-zA-Z0-9_-]{6,20}$/.test(id)) {
     return res.status(400).json({ error: 'id inválido' });
   }
-
   const errors = [];
   for (let i = 0; i < PIPED.length; i++) {
     try {
       const out = await piped(PIPED[i], id);
-      res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
+      res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=86400');
       return res.status(200).json(out);
     } catch (e) {
       errors.push(String(e.message || e));
     }
   }
-  for (let i = 0; i < INVIDIOUS.length; i++) {
-    try {
-      const out = await invidious(INVIDIOUS[i], id);
-      res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
-      return res.status(200).json(out);
-    } catch (e) {
-      errors.push(String(e.message || e));
-    }
-  }
-  return res.status(502).json({ error: 'No se pudo obtener el audio', detail: errors.slice(0, 4) });
+  return res.status(502).json({
+    error: 'En el televisor usa el servidor de audio de la PC (puerto 8787)',
+    detail: errors.slice(0, 4),
+  });
 };

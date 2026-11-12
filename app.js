@@ -20,7 +20,9 @@
   var $ = function (id) { return document.getElementById(id); };
   var stage = $('stage'), fire = $('fire'), q = $('q'), searchEl = $('search'), kb = $('keyboard');
   var cardsEl = $('cards'), resultsEl = $('results'), nowEl = $('now'), toastEl = $('toast');
-  var isTv = new URLSearchParams(location.search).has('tv');
+  var params = new URLSearchParams(location.search);
+  var isTv = params.has('tv');
+  var audioBase = String(params.get('audio') || '').replace(/\/$/, '');
   if (isTv) {
     document.body.classList.add('tv');
     q.readOnly = true;
@@ -344,12 +346,22 @@
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
-    fetch('/api/stream?id=' + encodeURIComponent(r.id))
-      .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
-      .then(function (res) {
+
+    // Prefer the LAN audio proxy (keeps the fireplace video decoder free on Tizen).
+    // Fallback: Vercel /api/stream JSON { url }.
+    var start = audioBase
+      ? Promise.resolve(audioBase + '/play?id=' + encodeURIComponent(r.id))
+      : fetch('/api/stream?id=' + encodeURIComponent(r.id))
+          .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
+          .then(function (res) {
+            if (!res.ok || !res.data.url) throw new Error(res.data && res.data.error || 'Sin audio');
+            return res.data.url;
+          });
+
+    start
+      .then(function (url) {
         if (token !== playToken) return;
-        if (!res.ok || !res.data.url) throw new Error(res.data && res.data.error || 'Sin audio');
-        audio.src = res.data.url;
+        audio.src = url;
         return audio.play();
       })
       .catch(function (e) {
