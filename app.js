@@ -22,7 +22,6 @@
   var cardsEl = $('cards'), resultsEl = $('results'), nowEl = $('now'), toastEl = $('toast');
   var params = new URLSearchParams(location.search);
   var isTv = params.has('tv');
-  var audioBase = String(params.get('audio') || '').replace(/\/$/, '');
   if (isTv) {
     document.body.classList.add('tv');
     q.readOnly = true;
@@ -317,9 +316,37 @@
     if (!audio.ended) document.body.classList.add('paused');
   });
   audio.addEventListener('error', function () {
+    // Vercel may cut a long proxy at ~60s; resume from the last position.
+    if (current >= 0 && lastAudioTime > 8) {
+      var left = (results[current].seconds || 0) - lastAudioTime;
+      if (left > 5) {
+        startAudio(results[current], lastAudioTime);
+        return;
+      }
+    }
     toast('Esta canción no se pudo reproducir. Pasando a otra…');
     setTimeout(next, 1200);
   });
+
+  var lastAudioTime = 0;
+
+  function audioUrl(r, start) {
+    var u = '/api/play?id=' + encodeURIComponent(r.id);
+    if (start > 1) u += '&start=' + Math.floor(start) + '&dur=' + Math.floor(r.seconds || 0);
+    return u;
+  }
+
+  function startAudio(r, start) {
+    var token = ++playToken;
+    audio.pause();
+    audio.src = audioUrl(r, start || 0);
+    audio.load();
+    audio.play().catch(function (e) {
+      if (token !== playToken) return;
+      toast('No se pudo reproducir: ' + (e.message || e));
+      setTimeout(next, 1200);
+    });
+  }
 
   function play(i, fromHistory) {
     if (i < 0 || i >= results.length) return;
@@ -334,41 +361,15 @@
     $('bar-fill').style.width = '0';
     $('t-cur').textContent = '0:00';
     $('t-dur').textContent = r.seconds ? fmt(r.seconds) : '0:00';
+    lastAudioTime = 0;
     nowEl.classList.remove('hidden');
     document.body.classList.remove('paused');
     items('cards').forEach(function (c, k) { c.classList.toggle('playing', k === i); });
     quietUntil = Date.now() + 1500;
     armIdle(FIRST_HIDE_MS);
-    // Keep the fireplace moving — music is audio-only, so it does not steal the TV video decoder.
+    // Music is audio-only on Vercel, so the fireplace video keeps the TV decoder.
     if (fire && fire.paused) fire.play().catch(function () {});
-
-    var token = ++playToken;
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
-
-    // Prefer the LAN audio proxy (keeps the fireplace video decoder free on Tizen).
-    // Fallback: Vercel /api/stream JSON { url }.
-    var start = audioBase
-      ? Promise.resolve(audioBase + '/play?id=' + encodeURIComponent(r.id))
-      : fetch('/api/stream?id=' + encodeURIComponent(r.id))
-          .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
-          .then(function (res) {
-            if (!res.ok || !res.data.url) throw new Error(res.data && res.data.error || 'Sin audio');
-            return res.data.url;
-          });
-
-    start
-      .then(function (url) {
-        if (token !== playToken) return;
-        audio.src = url;
-        return audio.play();
-      })
-      .catch(function (e) {
-        if (token !== playToken) return;
-        toast('No se pudo reproducir: ' + (e.message || e));
-        setTimeout(next, 1200);
-      });
+    startAudio(r, 0);
   }
 
   function next() {
@@ -397,9 +398,17 @@
     var d = audio.duration;
     if (!isFinite(d) || d <= 0) d = (results[current] && results[current].seconds) || 0;
     var t = audio.currentTime || 0;
-    $('t-cur').textContent = fmt(t);
+    if (t > lastAudioTime) lastAudioTime = t;
+    // Progress bar uses absolute song time when we resumed after a proxy cut.
+    var shown = t;
+    if (audio.src.indexOf('start=') > -1) {
+      var m = /[?&]start=(\d+)/.exec(audio.src);
+      if (m) shown = (+m[1] || 0) + t;
+    }
+    lastAudioTime = Math.max(lastAudioTime, shown);
+    $('t-cur').textContent = fmt(shown);
     $('t-dur').textContent = fmt(d);
-    $('bar-fill').style.width = d ? (t / d * 100) + '%' : '0';
+    $('bar-fill').style.width = d ? (Math.min(shown, d) / d * 100) + '%' : '0';
     if (fire && fire.paused && !audio.paused) fire.play().catch(function () {});
   }, 500);
 
