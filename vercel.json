@@ -1,14 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "npm install",
+  "installCommand": "npm install --omit=dev",
   "buildCommand": "echo sin compilacion",
   "outputDirectory": ".",
   "functions": {
     "api/play.js": {
       "maxDuration": 60,
-      "memory": 1024,
-      "includeFiles": "node_modules/youtube-dl-exec/**"
+      "memory": 1024
     },
     "api/search.js": {
       "maxDuration": 30
