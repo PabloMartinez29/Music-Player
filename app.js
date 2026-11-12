@@ -213,9 +213,10 @@
 
   function search(text) {
     text = String(text || '').trim();
+    q.value = '';
+    closeKeyboard('search');
     if (!text) return;
     query = text;
-    closeKeyboard('search');
     $('results-title').textContent = 'Resultados para “' + text + '”';
     $('results-count').textContent = 'Buscando…';
     resultsEl.classList.remove('hidden');
@@ -319,6 +320,7 @@
     if (!fromHistory) history.push(i);
     $('now-title').textContent = r.title;
     $('now-channel').textContent = r.channel;
+    $('now-art').src = r.thumb;
     $('bar-fill').style.width = '0';
     nowEl.classList.remove('hidden');
     document.body.classList.remove('paused');
