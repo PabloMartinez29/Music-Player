@@ -1,23 +1,15 @@
 (function () {
   'use strict';
 
-  var GENRES = [
-    ['Rancheras', '#ff6a3d', 'rancheras mexicanas clásicas Vicente Fernández Pedro Infante'],
-    ['Vallenato', '#ffc04d', 'vallenatos clásicos Diomedes Díaz Binomio de Oro'],
-    ['Salsa', '#ff4d6d', 'salsa clásica Grupo Niche Joe Arroyo Héctor Lavoe'],
-    ['Bachata', '#c86bff', 'bachata éxitos Romeo Santos Aventura'],
-    ['Reggaetón', '#4dd2ff', 'reggaetón éxitos 2026'],
-    ['Baladas', '#ff8fb1', 'baladas románticas en español éxitos'],
-    ['Rock en español', '#9aa7ff', 'rock en español clásicos Soda Stereo Maná Héroes del Silencio'],
-    ['Cumbia', '#7dff9a', 'cumbia colombiana clásica'],
-    ['Merengue', '#ffd36b', 'merengue clásico Juan Luis Guerra Wilfrido Vargas'],
-    ['Boleros', '#ffae7a', 'boleros clásicos Los Panchos Javier Solís'],
-    ['Popular', '#ff7a45', 'música popular colombiana despecho éxitos'],
-    ['Jazz', '#6be4ff', 'jazz clásico relajante'],
-    ['Clásica', '#e8d7b0', 'música clásica Mozart Beethoven Chopin'],
-    ['Lo-fi para relajarse', '#b49cff', 'lofi para relajarse']
+  var IDLE_MS = 8000;
+  var FIRST_HIDE_MS = 2500;
+  var KEYS = [
+    '1234567890'.split(''),
+    'qwertyuiop'.split(''),
+    'asdfghjklñ'.split(''),
+    'zxcvbnm'.split('').concat(['⌫']),
+    ['Limpiar', 'Espacio', 'Buscar']
   ];
-  var AMBIENT_MS = 12000;
   var DEMO = [
     { id: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', channel: 'Rick Astley', thumb: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg' },
     { id: 'kJQP7kiw5Fk', title: 'Luis Fonsi - Despacito ft. Daddy Yankee', channel: 'Luis Fonsi', thumb: 'https://i.ytimg.com/vi/kJQP7kiw5Fk/hqdefault.jpg' },
@@ -25,19 +17,22 @@
   ];
 
   var $ = function (id) { return document.getElementById(id); };
-  var stage = $('stage'), fire = $('fire'), q = $('q'), searchEl = $('search');
-  var chipsEl = $('chips'), cardsEl = $('cards'), resultsEl = $('results'), nowEl = $('now');
-  var toastEl = $('toast');
-  var params = new URLSearchParams(location.search);
-  var isTv = params.has('tv');
-  if (isTv) document.body.classList.add('tv');
+  var stage = $('stage'), fire = $('fire'), q = $('q'), searchEl = $('search'), kb = $('keyboard');
+  var cardsEl = $('cards'), resultsEl = $('results'), nowEl = $('now'), toastEl = $('toast');
+  var isTv = new URLSearchParams(location.search).has('tv');
+  if (isTv) {
+    document.body.classList.add('tv');
+    q.readOnly = true;
+  }
 
   var zone = 'search';
-  var index = { search: 0, chips: 0, cards: 0, controls: 1 };
-  var results = [];
-  var current = -1;
+  var index = { cards: 0, controls: 1 };
+  var kRow = 1, kCol = 0;
+  var results = [], current = -1, history = [];
+  var playedIds = {}, playedKeys = {};
+  var query = '', nextToken = null, loadingMore = false;
   var player = null, playerReady = false, pending = -1;
-  var ambientTimer = null;
+  var idleTimer = null;
 
   // ---------- layout ----------
 
@@ -79,15 +74,6 @@
   tick();
   setInterval(tick, 10000);
 
-  GENRES.forEach(function (g) {
-    var b = document.createElement('div');
-    b.className = 'chip focusable';
-    b.textContent = g[0];
-    b.style.setProperty('--c', g[1]);
-    b.addEventListener('click', function () { search(g[2], g[0]); });
-    chipsEl.appendChild(b);
-  });
-
   function toast(msg) {
     toastEl.textContent = msg;
     toastEl.classList.add('on');
@@ -95,18 +81,85 @@
     toast.t = setTimeout(function () { toastEl.classList.remove('on'); }, 3200);
   }
 
+  // ---------- on-screen keyboard ----------
+
+  var ICON_BACKSPACE = '<svg viewBox="0 0 24 24"><path d="M21 5H9l-6 7 6 7h12z"/><path d="m12 9 6 6m0-6-6 6"/></svg>';
+  var ICON_SEARCH = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
+
+  KEYS.forEach(function (row, r) {
+    var div = document.createElement('div');
+    div.className = 'krow';
+    row.forEach(function (key, c) {
+      var b = document.createElement('button');
+      b.className = 'k';
+      if (key === '⌫') { b.className += ' w3'; b.innerHTML = ICON_BACKSPACE; }
+      else if (key === 'Limpiar') { b.className += ' w2'; b.textContent = 'Limpiar'; }
+      else if (key === 'Espacio') { b.className += ' w5'; b.textContent = 'Espacio'; }
+      else if (key === 'Buscar') { b.className += ' w3 enter'; b.innerHTML = ICON_SEARCH + 'Buscar'; }
+      else b.textContent = key;
+      b.addEventListener('mousedown', function (e) { e.preventDefault(); });
+      b.addEventListener('click', function () { kRow = r; kCol = c; press(key); paint(); });
+      div.appendChild(b);
+    });
+    kb.appendChild(div);
+  });
+
+  function keyEl(r, c) { return kb.children[r].children[c]; }
+
+  function press(key) {
+    if (key === '⌫') q.value = q.value.slice(0, -1);
+    else if (key === 'Limpiar') q.value = '';
+    else if (key === 'Espacio') { if (q.value && !/ $/.test(q.value)) q.value += ' '; }
+    else if (key === 'Buscar') search(q.value);
+    else q.value += key;
+  }
+
+  function openKeyboard() {
+    if (zone === 'keyboard') return;
+    zone = 'keyboard';
+    kb.classList.remove('hidden');
+    searchEl.classList.add('typing');
+    document.body.classList.add('typing');
+    kRow = 1; kCol = 0;
+    wake();
+    paint();
+  }
+
+  function closeKeyboard(to) {
+    kb.classList.add('hidden');
+    searchEl.classList.remove('typing');
+    document.body.classList.remove('typing');
+    if (!isTv) q.blur();
+    zone = to || 'search';
+    paint();
+    armIdle();
+  }
+
+  function moveKeyRow(dir) {
+    var r = kRow + dir;
+    if (r < 0) return;
+    if (r >= KEYS.length) { if (results.length) closeKeyboard('cards'); return; }
+    var cur = keyEl(kRow, kCol), cx = cur.offsetLeft + cur.offsetWidth / 2, best = 0, bestD = 1e9;
+    for (var c = 0; c < KEYS[r].length; c++) {
+      var el = keyEl(r, c), d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - cx);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    kRow = r; kCol = best;
+    paint();
+  }
+
   // ---------- focus ----------
 
   function items(z) {
     if (z === 'search') return [searchEl];
-    if (z === 'chips') return Array.prototype.slice.call(chipsEl.children);
     if (z === 'cards') return Array.prototype.slice.call(cardsEl.children);
     if (z === 'controls') return Array.prototype.slice.call(document.querySelectorAll('.ctl'));
+    if (z === 'keyboard') return [keyEl(kRow, kCol)];
     return [];
   }
 
   function zones() {
-    var z = ['search', 'chips'];
+    var z = ['search'];
     if (results.length) z.push('cards');
     if (current >= 0) z.push('controls');
     return z;
@@ -116,8 +169,9 @@
     document.querySelectorAll('.focus').forEach(function (el) { el.classList.remove('focus'); });
     var list = items(zone);
     if (!list.length) return;
-    index[zone] = Math.max(0, Math.min(list.length - 1, index[zone]));
-    list[index[zone]].classList.add('focus');
+    if (zone === 'keyboard') { list[0].classList.add('focus'); return; }
+    var i = zone === 'search' ? 0 : (index[zone] = Math.max(0, Math.min(list.length - 1, index[zone])));
+    list[i].classList.add('focus');
     if (zone === 'cards') {
       var step = 368, visible = 4;
       var max = Math.max(0, list.length - visible);
@@ -126,90 +180,107 @@
     }
   }
 
-  function setZone(z) {
-    zone = z;
-    paint();
-  }
+  function setZone(z) { zone = z; paint(); }
 
   function moveZone(dir) {
     var z = zones(), i = z.indexOf(zone) + dir;
     if (i >= 0 && i < z.length) setZone(z[i]);
   }
 
-  function moveInZone(dir) {
-    if (zone === 'chips') {
-      var list = items('chips'), cur = list[index.chips];
-      var row = list.filter(function (el) { return Math.abs(el.offsetTop - cur.offsetTop) < 10; });
-      var pos = row.indexOf(cur) + dir;
-      if (pos >= 0 && pos < row.length) index.chips = list.indexOf(row[pos]);
-    } else {
-      index[zone] += dir;
-    }
-    paint();
+  // ---------- search and queue ----------
+
+  function titleKey(t) {
+    return String(t || '').toLowerCase()
+      .replace(/\(.*?\)|\[.*?\]/g, ' ')
+      .replace(/\b(official|oficial|video|v[ií]deo|audio|lyrics?|letra|hd|4k|remaster(ed)?|en vivo|live)\b/g, ' ')
+      .replace(/[^a-z0-9áéíóúñü ]/g, ' ')
+      .replace(/\s+/g, ' ').trim().slice(0, 48);
   }
 
-  function moveChipsRow(dir) {
-    var list = items('chips'), cur = list[index.chips];
-    var tops = list.map(function (el) { return el.offsetTop; }).filter(function (t, i, a) { return a.indexOf(t) === i; });
-    var r = tops.indexOf(cur.offsetTop) + dir;
-    if (r < 0 || r >= tops.length) return false;
-    var cx = cur.offsetLeft + cur.offsetWidth / 2, best = null, bestD = 1e9;
-    list.forEach(function (el, i) {
-      if (el.offsetTop !== tops[r]) return;
-      var d = Math.abs(el.offsetLeft + el.offsetWidth / 2 - cx);
-      if (d < bestD) { bestD = d; best = i; }
-    });
-    index.chips = best;
-    paint();
-    return true;
-  }
-
-  // ---------- search ----------
-
-  function search(text, label) {
-    text = String(text || '').trim();
-    if (!text) return;
-    q.blur();
-    $('results-title').textContent = 'Resultados para “' + (label || text) + '”';
-    $('results-count').textContent = 'Buscando…';
-    resultsEl.classList.remove('hidden');
-    document.body.classList.add('has-results');
-    fetch('/api/search?q=' + encodeURIComponent(text))
+  function fetchPage(text, token) {
+    var url = '/api/search?q=' + encodeURIComponent(text) + (token ? '&page=' + encodeURIComponent(token) : '');
+    return fetch(url)
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, data: d }; }); })
       .then(function (r) {
         if (!r.ok) throw new Error(r.data && r.data.error || 'Error');
-        show(r.data);
+        return Array.isArray(r.data) ? { items: r.data, next: null } : r.data;
       })
       .catch(function (e) {
-        if (/^(localhost|127\.)/.test(location.hostname)) {
-          show(DEMO);
-          toast('Modo de prueba local: resultados de ejemplo');
-        } else {
-          $('results-count').textContent = '';
-          toast('No se pudo buscar: ' + e.message);
-        }
+        if (/^(localhost|127\.)/.test(location.hostname)) return { items: token ? [] : DEMO, next: null };
+        throw e;
       });
   }
 
-  function show(list) {
-    results = list || [];
-    current = -1;
-    $('results-count').textContent = results.length ? results.length + ' canciones' : 'Sin resultados';
-    cardsEl.innerHTML = '';
-    cardsEl.style.transform = 'translateX(0)';
-    results.forEach(function (r, i) {
+  function search(text) {
+    text = String(text || '').trim();
+    if (!text) return;
+    query = text;
+    closeKeyboard('search');
+    $('results-title').textContent = 'Resultados para “' + text + '”';
+    $('results-count').textContent = 'Buscando…';
+    resultsEl.classList.remove('hidden');
+    document.body.classList.add('has-results');
+    fetchPage(text).then(function (page) {
+      results = [];
+      current = -1;
+      history = [];
+      cardsEl.innerHTML = '';
+      cardsEl.style.transform = 'translateX(0)';
+      nextToken = page.next;
+      add(page.items);
+      index.cards = 0;
+      setZone(results.length ? 'cards' : 'search');
+    }).catch(function (e) {
+      $('results-count').textContent = '';
+      toast('No se pudo buscar: ' + e.message);
+    });
+  }
+
+  function add(list) {
+    var seenIds = {}, seenKeys = {};
+    results.forEach(function (r) { seenIds[r.id] = 1; seenKeys[titleKey(r.title)] = 1; });
+    var added = 0;
+    (list || []).forEach(function (r) {
+      var k = titleKey(r.title);
+      if (seenIds[r.id] || seenKeys[k] || playedIds[r.id] || playedKeys[k]) return;
+      seenIds[r.id] = seenKeys[k] = 1;
+      var i = results.push(r) - 1;
       var c = document.createElement('div');
       c.className = 'card';
-      c.style.animationDelay = Math.min(i, 8) * 60 + 'ms';
+      c.style.animationDelay = Math.min(added, 8) * 60 + 'ms';
       c.innerHTML = '<div class="art"><img alt=""><div class="play"><svg viewBox="0 0 24 24"><path d="M7 4.5v15L19.5 12z"/></svg></div></div><div class="t"></div><div class="c"></div>';
       c.querySelector('img').src = r.thumb;
       c.querySelector('.t').textContent = r.title;
       c.querySelector('.c').textContent = r.channel;
       c.addEventListener('click', function () { index.cards = i; play(i); });
       cardsEl.appendChild(c);
+      added++;
     });
-    index.cards = 0;
-    if (results.length) setZone('cards'); else setZone('search');
+    $('results-count').textContent = results.length ? results.length + ' canciones' : 'Sin resultados';
+    return added;
+  }
+
+  function upcoming() {
+    for (var i = current + 1; i < results.length; i++) {
+      if (!playedIds[results[i].id] && !playedKeys[titleKey(results[i].title)]) return i;
+    }
+    return -1;
+  }
+
+  // Like YouTube's autoplay: when the list runs out, keep going with more songs, never repeating one.
+  function loadMore() {
+    if (loadingMore) return;
+    loadingMore = true;
+    var base = results[current] || {};
+    var text = nextToken ? query : (base.channel ? base.channel + ' canciones' : query);
+    fetchPage(text, nextToken).then(function (page) {
+      nextToken = nextToken ? page.next : null;
+      loadingMore = false;
+      var before = results.length;
+      if (add(page.items) > 0) play(before);
+      else if (nextToken) loadMore();
+      else toast('No hay más canciones nuevas para esta búsqueda');
+    }).catch(function () { loadingMore = false; });
   }
 
   // ---------- player ----------
@@ -221,13 +292,16 @@
       events: {
         onReady: function () { playerReady = true; if (pending >= 0) play(pending); },
         onStateChange: function (e) {
-          if (e.data === 1) document.body.classList.remove('paused');
+          if (e.data === 1) {
+            document.body.classList.remove('paused');
+            if (play.justStarted) { play.justStarted = false; armIdle(FIRST_HIDE_MS); }
+          }
           if (e.data === 2) document.body.classList.add('paused');
-          if (e.data === 0) next(1);
+          if (e.data === 0) next();
         },
         onError: function () {
-          toast('Esta canción no permite reproducirse aquí. Pasando a la siguiente…');
-          setTimeout(function () { next(1); }, 1500);
+          toast('Esta canción no permite reproducirse aquí. Pasando a otra…');
+          setTimeout(next, 1500);
         }
       }
     });
@@ -236,26 +310,34 @@
   api.src = 'https://www.youtube.com/iframe_api';
   document.head.appendChild(api);
 
-  function play(i) {
+  function play(i, fromHistory) {
     if (i < 0 || i >= results.length) return;
     current = i;
     var r = results[i];
+    playedIds[r.id] = 1;
+    playedKeys[titleKey(r.title)] = 1;
+    if (!fromHistory) history.push(i);
     $('now-title').textContent = r.title;
     $('now-channel').textContent = r.channel;
     $('bar-fill').style.width = '0';
     nowEl.classList.remove('hidden');
     document.body.classList.remove('paused');
     items('cards').forEach(function (c, k) { c.classList.toggle('playing', k === i); });
-    fire.volume = 0;
     if (!playerReady) { pending = i; return; }
     pending = -1;
+    play.justStarted = true;
     player.loadVideoById(r.id);
-    armAmbient();
   }
 
-  function next(step) {
-    var i = current + step;
-    if (i >= 0 && i < results.length) play(i);
+  function next() {
+    var i = upcoming();
+    if (i >= 0) play(i); else loadMore();
+  }
+
+  function prev() {
+    if (history.length < 2) return;
+    history.pop();
+    play(history[history.length - 1], true);
   }
 
   function toggle() {
@@ -281,71 +363,89 @@
   });
 
   function act(a) {
-    if (a === 'prev') next(-1);
-    else if (a === 'next') next(1);
+    if (a === 'prev') prev();
+    else if (a === 'next') next();
     else toggle();
   }
 
-  // ---------- ambient mode ----------
+  // ---------- only the fire while music plays ----------
 
-  function armAmbient() {
-    clearTimeout(ambientTimer);
-    document.body.classList.remove('ambient');
-    if (current >= 0) ambientTimer = setTimeout(function () {
-      if (document.activeElement !== q) document.body.classList.add('ambient');
-    }, AMBIENT_MS);
+  function playing() { return current >= 0 && !document.body.classList.contains('paused'); }
+
+  function armIdle(ms) {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(function () {
+      if (playing() && zone !== 'keyboard') document.body.classList.add('ambient');
+    }, ms || IDLE_MS);
   }
 
   function wake() {
     var was = document.body.classList.contains('ambient');
-    armAmbient();
+    document.body.classList.remove('ambient');
+    armIdle();
     return was;
   }
 
-  // ---------- keys ----------
+  // ---------- keys and mouse ----------
 
   function exitApp() {
     if (window.parent !== window) window.parent.postMessage({ fogata: 'exit' }, '*');
   }
 
-  q.addEventListener('focus', function () { zone = 'search'; paint(); });
+  searchEl.addEventListener('click', function (e) {
+    if (e.target.closest('#go')) { search(q.value); return; }
+    openKeyboard();
+    if (!isTv) q.focus();
+  });
 
-  document.addEventListener('mousemove', function () { if (!isTv) wake(); });
+  ['mousemove', 'mousedown', 'wheel'].forEach(function (ev) {
+    document.addEventListener(ev, function () { wake(); }, { passive: true });
+  });
 
   document.addEventListener('keydown', function (e) {
     var k = e.keyCode;
-    var typing = document.activeElement === q;
 
     if (k === 10252 || k === 415 || k === 19) { e.preventDefault(); wake(); toggle(); return; }
-    if (k === 10233 || k === 417) { e.preventDefault(); next(1); return; }
-    if (k === 10232 || k === 412) { e.preventDefault(); next(-1); return; }
-
-    if (typing) {
-      if (k === 13 || k === 65376) { e.preventDefault(); search(q.value); }
-      else if (k === 10009 || k === 27 || k === 65385) { e.preventDefault(); q.blur(); setZone('search'); }
-      else if (k === 40) { e.preventDefault(); q.blur(); moveZone(1); }
-      wake();
-      return;
-    }
+    if (k === 10233 || k === 417) { e.preventDefault(); next(); return; }
+    if (k === 10232 || k === 412) { e.preventDefault(); prev(); return; }
 
     if (wake()) { e.preventDefault(); return; }
 
+    var back = k === 10009 || k === 27 || (k === 8 && zone !== 'keyboard');
+
+    if (zone === 'keyboard') {
+      var physical = !isTv && document.activeElement === q;
+      if (k === 37) { e.preventDefault(); kCol = Math.max(0, kCol - 1); paint(); }
+      else if (k === 39) { e.preventDefault(); kCol = Math.min(KEYS[kRow].length - 1, kCol + 1); paint(); }
+      else if (k === 38) { e.preventDefault(); moveKeyRow(-1); }
+      else if (k === 40) { e.preventDefault(); moveKeyRow(1); }
+      else if (k === 13 || k === 65376) {
+        e.preventDefault();
+        if (physical) search(q.value); else press(KEYS[kRow][kCol]);
+      }
+      else if (back || k === 65385) { e.preventDefault(); closeKeyboard('search'); }
+      return;
+    }
+
     switch (k) {
-      case 37: e.preventDefault(); moveInZone(-1); break;
-      case 39: e.preventDefault(); moveInZone(1); break;
-      case 38: e.preventDefault(); if (!(zone === 'chips' && moveChipsRow(-1))) moveZone(-1); break;
-      case 40: e.preventDefault(); if (!(zone === 'chips' && moveChipsRow(1))) moveZone(1); break;
+      case 37: e.preventDefault(); if (zone !== 'search') { index[zone]--; paint(); } break;
+      case 39: e.preventDefault(); if (zone !== 'search') { index[zone]++; paint(); } break;
+      case 38: e.preventDefault(); moveZone(-1); break;
+      case 40: e.preventDefault(); moveZone(1); break;
       case 13:
         e.preventDefault();
-        if (zone === 'search') q.focus();
-        else if (zone === 'chips') { var g = GENRES[index.chips]; search(g[2], g[0]); }
+        if (zone === 'search') openKeyboard();
         else if (zone === 'cards') play(index.cards);
         else if (zone === 'controls') act(items('controls')[index.controls].getAttribute('data-act'));
         break;
-      case 10009: case 27: case 8:
-        e.preventDefault();
-        if (zone !== 'search') setZone('search'); else exitApp();
-        break;
+      default:
+        if (back) {
+          e.preventDefault();
+          if (zone !== 'search') setZone('search'); else exitApp();
+        } else if (!isTv && e.key && e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+          openKeyboard();
+          q.focus();
+        }
     }
   });
 

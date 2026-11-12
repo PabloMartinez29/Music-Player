@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fogata · Música junto al fuego</title>
+  <title>Música junto al fuego</title>
   <meta name="description" content="Busca cualquier canción del mundo y escúchala junto al fuego.">
   <link rel="icon" href="flame.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,13 +18,6 @@
   <div class="embers" aria-hidden="true"></div>
 
   <header id="top">
-    <div class="brand">
-      <img src="flame.svg" alt="">
-      <div>
-        <div class="name">Fogata</div>
-        <div class="tag">Música junto al fuego</div>
-      </div>
-    </div>
     <div class="clock">
       <div id="time">--:--</div>
       <div id="date"></div>
@@ -33,13 +26,14 @@
 
   <main id="ui">
     <section id="hero">
-      <h1 id="headline">¿Qué quieres escuchar esta noche?</h1>
-      <label id="search" class="focusable" data-zone="search">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <h1 id="headline">¿Qué quieres escuchar?</h1>
+      <div id="search">
         <input id="q" type="text" placeholder="Canción, artista o género" autocomplete="off" spellcheck="false">
-        <span class="key">OK</span>
-      </label>
-      <div id="chips"></div>
+        <button id="go" aria-label="Buscar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
+      </div>
+      <div id="keyboard" class="hidden"></div>
     </section>
 
     <section id="results" class="hidden">
@@ -64,14 +58,14 @@
       </div>
     </div>
     <div class="controls">
-      <button class="ctl focusable" data-zone="controls" data-act="prev" aria-label="Anterior">
+      <button class="ctl" data-act="prev" aria-label="Anterior">
         <svg viewBox="0 0 24 24"><path d="M6 5v14M19 5 9 12l10 7z"/></svg>
       </button>
-      <button class="ctl big focusable" data-zone="controls" data-act="toggle" aria-label="Pausa">
+      <button class="ctl big" data-act="toggle" aria-label="Pausa">
         <svg class="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>
         <svg class="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15L19.5 12z"/></svg>
       </button>
-      <button class="ctl focusable" data-zone="controls" data-act="next" aria-label="Siguiente">
+      <button class="ctl" data-act="next" aria-label="Siguiente">
         <svg viewBox="0 0 24 24"><path d="M18 5v14M5 5l10 7-10 7z"/></svg>
       </button>
     </div>
